@@ -1,0 +1,2 @@
+# Fuhrman_repo
+This repo contains the code needed to run the data loading, preprocessing, as well as training of the model, then generation of figures based off of said model. The patient data is not publicly included for privacy reasons. However the our trained models weights are included.
