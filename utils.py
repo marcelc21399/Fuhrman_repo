@@ -2160,7 +2160,7 @@ def bothIms_and_Demo(model1, model2, dr = 0.5, nb_classes = 2, kr = 0.1, ar = 0.
     
     dense = Dense(nb_classes, name='predictions', kernel_regularizer=regularizers.l2(kr), activity_regularizer=regularizers.l1(ar))(x)
     
-    dense_soft = Lambda(lambda x: K.tf.nn.softmax(x))(dense)
+    dense_soft = Lambda(lambda x: K.softmax(x))(dense)
     
     
     
@@ -2267,9 +2267,9 @@ def changeFinalLayer(model, nb_classes, kr, ar, dr, reg = False, m = False):
     x = Dropout(dr)(x)
     dense = Dense(nb_classes, name='predictions', kernel_regularizer=regularizers.l2(kr), activity_regularizer=regularizers.l1(ar))(x)
     if not reg:
-        dense_soft = Lambda(lambda x: K.tf.nn.softmax(x))(dense)
+        dense_soft = Lambda(lambda x: K.softmax(x))(dense)
     else:
-        dense_soft = Lambda(lambda x: K.tf.nn.sigmoid(x))(dense)
+        dense_soft = Lambda(lambda x: K.sigmoid(x))(dense)
         if m:
             dense_soft = Lambda(lambda x: x * 4.0)(dense_soft)
     return Model(outputs=dense_soft, inputs=model.input)
@@ -2286,13 +2286,13 @@ def changeFinalLayerReg(model, nb_classes, kr, ar, dr):
     x = model.layers[-3].output
     x = Dropout(dr)(x)
     dense = Dense(nb_classes, name='predictions', kernel_regularizer=regularizers.l2(kr), activity_regularizer=regularizers.l1(ar))(x)
-    dense_soft = Lambda(lambda x: K.tf.nn.tanh(x))(dense)
+    dense_soft = Lambda(lambda x: K.tanh(x))(dense)
     return Model(outputs=dense_soft, inputs=model.input)
 def changeFinalLayerKRN(model, nb_classes, kr, ar, dr):
     x = model.layers[-1].output
     x = Dropout(dr)(x)
     dense = Dense(nb_classes, name='predictions', kernel_regularizer=regularizers.l2(kr), activity_regularizer=regularizers.l2(ar))(x)
-    dense_soft = Lambda(lambda x: K.tf.nn.softmax(x))(dense)
+    dense_soft = Lambda(lambda x: K.softmax(x))(dense)
     return Model(outputs=dense_soft, inputs=model.input)
 def stack_obj_ar(ims):
     seqs = []
@@ -2306,9 +2306,9 @@ def LR(nb_inp, nb_classes, reg = False, m=False):
     model = Sequential() 
     model.add(Dense(nb_classes, input_dim=nb_inp)) 
     if not reg:
-        model.add(Lambda(lambda x: K.tf.nn.softmax(x)))
+        model.add(Lambda(lambda x: K.softmax(x)))
     else:
-        model.add(Lambda(lambda x: K.tf.nn.sigmoid(x)))
+        model.add(Lambda(lambda x: K.sigmoid(x)))
         if m:
             model.add(Lambda(lambda x: 4*x))
     return model
@@ -3613,7 +3613,7 @@ def shareResNet(h,w, model, dr, kr, ar):
     dense_3 = Dense(24,)(merged_vector)
     x = Dropout(dr)(dense_3)
     dense = Dense(nb_classes, name='predictions', kernel_regularizer=regularizers.l2(kr), activity_regularizer=regularizers.l1(ar))(x)
-    dense_soft = Lambda(lambda x: K.tf.nn.softmax(x))(dense)
+    dense_soft = Lambda(lambda x: K.softmax(x))(dense)
     
     full_model = Model(inputs = [stackInp], outputs = [dense_soft])
     full_model.summary()
