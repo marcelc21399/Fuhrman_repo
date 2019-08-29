@@ -49,6 +49,8 @@ from keras.applications.imagenet_utils import preprocess_input
 from keras.engine.topology import get_source_inputs
 import csv
 
+from skimage.transform import resize
+
 
 import my_globs
 
@@ -70,6 +72,309 @@ from keras.preprocessing.image import ImageDataGenerator
 from keras import backend as K
 from keras.utils import np_utils
 K.clear_session()
+
+
+def readCSVs(csv_path):
+    data = pandas.read_csv(csv_path)
+    nms = data.iloc[:,0].values
+    
+    inds = np.array([i for i,elt in enumerate(nms) if hasNumbers(elt)])
+    
+    nms = nms[inds]
+    #1=low, 2=high
+    pathols = data.iloc[inds,1].values
+    
+    #1=Fuhrman, 2=ISUP
+    Fuhr_ISUP = data.iloc[inds,2].values
+    
+    #1=biopsy, 0=not    
+    biopsy = [elt == 'biopsy' for elt in data.iloc[inds,3].values]
+    
+    ages = data.iloc[inds,4].values
+    
+    genders = data.iloc[inds,5].values
+    
+    demos = np.vstack([ages, genders, Fuhr_ISUP, biopsy, pathols])
+    
+    return list(nms), np.transpose(demos)
+
+def collectInCSV(imsLis, folLis, valsLis, nm, demo, segLis):
+    collect = []
+    for fol, ims, vals, seg in zip(folLis, imsLis, valsLis, segLis):
+        if fol in nm:
+            i = nm.index(fol)
+            row = [fol, ims, vals, demo[i], seg]
+            collect.append(row)
+        else:
+            print(fol)
+    return collect
+
+from Ianto_preprocess import preprocess_pack
+
+def my_crop(image, seg, dic):
+    image_cropped = image.copy()
+    
+    # image_cropped[~seg.astype(bool)] = 0 # rmv background, can comment out
+    
+    bb = np.argwhere(seg)
+    (x0, y0, z0) = bb.min(0)
+    (x1, y1, z1) = bb.max(0) + 1
+    
+    ls = []
+    for elt in dic['space directions']:
+        l = np.sum(np.square(np.array([float(n) for n in elt])))
+        ls.append(l)
+    dims = np.multiply(ls, dic['sizes'])
+    
+    vol = np.prod(ls) * np.sum(seg)
+    
+    image_cropped = image_cropped[x0:x1,y0:y1,z0:z1]
+    
+    return image_cropped, np.append(dims, vol) #output volume, dims
+def getImsSegs(imsF, seq):
+    tum, _ = nrrd.read(imsF + '/'+seq+'/imagingVolume.nrrd')
+    seg,  seg_dic = nrrd.read(imsF + '/'+seq+'/segMask_tumor.seg.nrrd')
+    
+    # create extended mask
+    seg_full = np.zeros(tum.shape)
+    uni_off = seg_dic['keyvaluepairs']['Segmentation_ReferenceImageExtentOffset']
+    off = list(map(int,str(uni_off).split()))
+    x0,y0,z0 = off
+    x1,y1,z1 = list(map(lambda x,y: x+y, off, list(seg.shape)))
+    
+    seg_full[x0:x1,y0:y1,z0:z1] = seg
+    return tum.astype(np.uint32), seg_full.astype(np.uint8), seg_dic, seg.astype(bool)
+def parseDir(dr):
+    RCC = dirNoDots(dr)
+    
+    lis = []
+    nmLis = []
+    
+    RCC = [elt for elt in RCC if ('.' not in elt and '\r' not in elt)]
+    RCC = [elt for elt in RCC if hasNumbers(elt)]
+    RCC = [elt for elt in RCC if 'idney' in elt or 'ideny' in elt]
+    RCC = [elt for elt in RCC if '_' not in elt]
+    
+    valsLis = []
+    folLis = []
+    imsLis = []
+    segLis = []
+    #f=RCC[0]
+    for f in RCC:
+        imsF = dr + '/' + f
+        print(imsF)
+        
+        folLis.append(f)
+        
+        tum_t1c, seg_t1c, dic_t1c, seg_cropped_t1c = getImsSegs(imsF, 'T1C')
+        tum_t2, seg_t2, dic_t2, seg_cropped_t2 = getImsSegs(imsF, 'T2WI')
+        
+        #reference, images_w_segmentations=tum_t1c, [(tum_t2, seg_t2)]
+        out_t1_image, out_t2 = preprocess_pack(tum_t1c, [(tum_t2, seg_t2)], use_n4_bias=False, use_registration=False)
+        out_t1_seg = seg_t1c #unchanged
+        out_t2_image, out_t2_seg = out_t2[0]
+        
+        cropped_t1, vals_t1c = my_crop(out_t1_image, out_t1_seg, dic_t1c)
+        cropped_t2, vals_t2 = my_crop(out_t2_image, out_t2_seg, dic_t2)
+        
+        ims = [cropped_t1, cropped_t2]
+        imsLis.append(ims)
+        segLis.append([seg_cropped_t1c, seg_cropped_t2])
+        
+        vals = [vals_t1c, vals_t2]
+        valsLis.append(vals)
+    return valsLis, imsLis, folLis, segLis
+
+def readData():
+    nm, demo = readCSVs('../RCC_histological_grade.csv')
+    dr = '../grade'
+    valsLis, imsLis, folLis, segLis = parseDir(dr)
+    
+    collect = collectInCSV(imsLis, folLis, valsLis, nm, demo, segLis)
+    
+    #collect row:
+    #[str, [T1_im,T2_im], [(4,),(4,)], (5,)]
+    #(4,): x,y,z,vol
+    #(5,): ages, genders, Fuhr_ISUP, biopsy, pathols
+    #1=Fuhrman, 2=ISUP, 
+    
+    st = np.array(collect, dtype=object)
+    return st
+
+def saveRawData():
+    st = readData()
+    save_obj(st, '../inps')
+
+def loadRawData():
+    st = ld_obj('../inps') 
+    return st
+
+
+def getLargestAlongDim(im, seg, dim, w):
+	#im, dim = seq, 2
+	dims = [0,1,2]
+	dims = np.setdiff1d(dims, dim)
+	slice_sizes = np.apply_over_axes(np.sum, seg, dims)
+	largest_slice_ind = np.argmax(slice_sizes)
+	largest_slice = np.take(im, largest_slice_ind, axis=dim)
+	rszd = resize(largest_slice, (w, w))
+	return rszd
+
+#STOCHASTIC
+def mk_trn_tst_val_inds(by_patient, trn_tst_val):
+    # by_patient, trn_tst_val= non_biopsy_non_Fuhrman, spl
+    #[input_T1s[:,:,:,i], input_T2s[:,:,:,i], input_numbers[i,:], nms[i], outs[i]] for i in range(len(outputs))]
+    by_patient = np.array(by_patient, dtype=object)
+    inps = by_patient[:, :4]
+    outs = by_patient[:, 4]
+    
+    
+    outs = np.array(outs)
+    uniq = np.unique(outs)
+    tst_inds = []
+    trn_inds = []
+    val_inds = []
+
+    for elt in uniq:
+        inds_elt = np.where(outs==elt)[0]
+        
+        l = len(inds_elt)
+        inds = np.arange(l)
+        np.random.shuffle(inds)
+
+        cutoff_trn = int(np.ceil(l*trn_tst_val[0]))
+        cutoff_tst = int(np.ceil(l*trn_tst_val[1])) + cutoff_trn
+        #cutoff_val = int(np.ceil(l*trn_tst_val[2])) + cutoff_tst
+
+        
+        trn_inds.append(inds_elt[inds[:cutoff_trn]])
+        tst_inds.append(inds_elt[inds[cutoff_trn:cutoff_tst]])
+        val_inds.append(inds_elt[inds[cutoff_tst:]])
+    
+    tst_inds = np.hstack(tst_inds)
+    trn_inds = np.hstack(trn_inds)
+    val_inds = np.hstack(val_inds)
+    
+    save_obj([trn_inds, val_inds, tst_inds],'inds')
+    
+def split_trn_tst_val(by_patient):
+    by_patient = np.array(by_patient, dtype=object)
+    inps = by_patient[:, :4]
+    outs = by_patient[:, 4]-1
+    outs = outs.astype(bool)
+    
+    
+    [trn_inds, val_inds, tst_inds] = ld_obj('inds')
+    
+    tstLs = outs[tst_inds]
+    trnLs = outs[trn_inds]
+    valLs = outs[val_inds]
+    
+    tstIms = inps[tst_inds]
+    trnIms = inps[trn_inds]
+    valIms = inps[val_inds]
+    return trnLs, trnIms, tstLs, tstIms, valLs, valIms
+    
+
+def save_inps():
+    w, h = 64, 3
+    st = loadRawData()
+    
+    nms = list(st[:,0])
+    
+    raw_ims = list(st[:,1])
+    
+    dims = list(st[:,2])
+    
+    demos = np.vstack(st[:,3])
+    ages, genders, Fuhr_ISUP, biopsy, pathols = demos[:,0], demos[:,1], demos[:,2], demos[:,3], demos[:,4]
+    
+    raw_segs = list(st[:,4])
+    
+    inp_ims = np.zeros((len(raw_ims),2), dtype=object)
+    for i, (ims, segs) in enumerate(zip(raw_ims, raw_segs)):
+        for j, (im, seg) in enumerate(zip(ims, segs)):
+            plane_slices = [getLargestAlongDim(im, seg, dim, w) for dim in [0, 1, 2]]
+            
+            inp_ims[i,j] = np.dstack(plane_slices)
+    input_T1s = np.stack(inp_ims[:,0], axis=3)
+    input_T2s = np.stack(inp_ims[:,1], axis=3)
+    
+    input_dims = np.vstack([np.hstack(elt) for elt in dims])
+    input_demos = np.transpose(np.vstack([ages, genders]))
+    input_numbers = np.hstack([input_dims, input_demos])
+    
+    outs = pathols
+    
+    by_patient = [[input_T1s[:,:,:,i], input_T2s[:,:,:,i], input_numbers[i,:], nms[i], outs[i]] for i in range(len(outputs))]
+    
+    non_biopsy = biopsy == 0
+    Fuhrman = Fuhr_ISUP == 1
+    included = np.logical_and(non_biopsy, Fuhrman)
+    
+    
+    non_biopsy_non_Fuhrman = [by_patient[elt] for elt in np.where(included)[0]]
+    
+    #[str, [T1_im,T2_im], [(4,),(4,)], (5,)]
+    #(4,): x,y,z,vol
+    #(5,): ages, genders, Fuhr_ISUP, biopsy, pathols
+    #1=Fuhrman, 2=ISUP
+    
+    
+    spl = [0.7, 0.1, 0.2]
+    #mk_trn_tst_val_inds(by_patient, spl)
+    
+    trnLs, trnIms, tstLs, tstIms, valLs, valIms = split_trn_tst_val(non_biopsy_non_Fuhrman)
+    
+
+    save_obj([trnLs, trnIms, tstLs, tstIms, valLs, valIms], '../inps_64_orthogonal')
+    
+    biopsy_pats = np.array([by_patient[elt] for elt in np.where(biopsy)[0]], dtype=object)
+    ISUP_pats = np.array([by_patient[elt] for elt in np.where(Fuhr_ISUP == 2)[0]], dtype=object)
+    save_obj([biopsy_pats, ISUP_pats], '../misc_64_orthogonal')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # randomly split to left+right
 def randSplit(diff):
@@ -283,61 +588,7 @@ def dirNoDots(nm):
 
 def hasNumbers(inputString):
     return bool(re.search(r'\d', inputString))
-# helper records name and image
-def parseDir(dr):
-    RCC = dirNoDots(dr)
-    lis = []
-    nmLis = []
-    RCC = [elt for elt in RCC if ('.' not in elt and '\r' not in elt)]
-    RCC = [elt for elt in RCC if hasNumbers(elt)]
-    RCC = [elt for elt in RCC if 'idney' in elt or 'ideny' in elt]
-    RCC = [elt for elt in RCC if '_' not in elt]
-    
-    dicsLis = []
-    
-    folLis = []
-    imsLis = []
-    for f in RCC:
-        imsF = dr + '/' + f
-        print(imsF)
-        ims = dirNoDots(imsF)
-        ims = [elt for elt in ims if '.' not in elt]
-        if ims:
-            folLis.append(f)
-            seqList = []
-            dics = []
-            for im in ims:
-                #print(im)
-                nrrdFol = imsF + '/' + im + '/'
-                nrrdFls = dirNoDots(nrrdFol)
-                nrrds = [fl for fl in nrrdFls if fl.endswith('.seg.nrrd')]
-                nrrds_all = [fl for fl in nrrdFls if fl.endswith('.nrrd')]
-                if 'imagingVolume.nrrd' in nrrds_all and 'segMask_tumor.seg.nrrd' in nrrds_all:
-                    seg = 'imagingVolume.nrrd'
-                    tum, dic = nrrd.read(nrrdFol + seg)
-                    if len(tum.shape)>3:
-                        tum = tum[0]
-                    
-                    
-                    seg = 'segMask_tumor.seg.nrrd'
-                    range_tum, opt_seg = nrrd.read(nrrdFol + seg)
-                    sml_mask = range_tum.astype(bool)
-                    
-                    uni_off = opt_seg['keyvaluepairs']['Segmentation_ReferenceImageExtentOffset']
-                    off = list(map(int,str(uni_off).split()))
-                    x0,y0,z0 = off
-                    x1,y1,z1 = list(map(lambda x,y: x+y, off, list(range_tum.shape)))
-                    tum_sect = tum[x0:x1,y0:y1,z0:z1]
-                    tum_sect[~sml_mask] = 0
-                    seqList.append([im, tum_sect])
-                    
-                    lis.append(tum_sect)
-                    nmLis.append(str(f) + '/' + im)
-                    dic['bb'] = [x0, x1, y0, y1, z0, z1]
-                    dics.append([im, tum_sect, dic])
-            imsLis.append(seqList)
-            dicsLis.append(dics)
-    return dicsLis, lis, imsLis, folLis
+
 
 "functions for enriching/processing read inputs"
 "______________________________________________"
@@ -1325,7 +1576,7 @@ def getInps(spl = 0.3, Topt = np.array([1])):
     '''
 
 def loadSt2():
-    nm1, demo1 = readCSVs('../clinical_data_renal_tumor.csv')
+    nm1, demo1 = readCSVs('../RCC_histological_grade.csv')
     nm2, demo2 = readCSVs('../../Penn renal tumor2/penn_renal_tumor2_formatted.csv')
     nm = nm2 + nm2
     demo = np.vstack([demo1,demo2])
@@ -1371,36 +1622,10 @@ def loadSt2():
         newStruct.append([row[0], row[2], T1Im, T2Im])
     st = np.array(newStruct)
     return st
-def loadSt():
-    st1 = ld_obj('../data/st1') 
-    st2 = ld_obj('../data/st2') 
-    st = np.vstack([st1,st2])
-    return st
 
 
-def readCSVs(csv_path):
-    data = pandas.read_csv(csv_path)
-    nms = data.iloc[:,0].values
-    
-    inds = np.array([i for i,elt in enumerate(nms) if hasNumbers(elt)])
-    
-    
-    nms = nms[inds]
-    pathols = data.iloc[inds,1].values
-    #hist_type(pathols)
-    RCCs = data.iloc[inds,2].values
-    #hist_type(RCCs)
-    benigns = data.iloc[inds,3].values
-    #hist_type(benigns)
-    furmans = data.iloc[inds,4].values
-    #hist_type(furmans)
-    ages = data.iloc[inds,5].values
-    #hist_type(ages)
-    genders = data.iloc[inds,6].values
-    #hist_type(genders)
-    
-    demos = np.vstack([RCCs, pathols, benigns, furmans, ages, genders])
-    return nms, np.transpose(demos)
+
+
 
 def readCSVs_Fuhrman_ISUP(csv_path):
     data = pandas.read_csv(csv_path)
@@ -1547,22 +1772,8 @@ def split_trn_tst_val_rcc(inps, outs, trn_tst_val):
     
     return trnLs, trnIms, valLs, valIms
 
-def checkHasT1T2(imsLis, folLis):
-    for i in range(len(folLis)):
-        a = imsLis[i]
-        strs = [elt[0] for elt in a]
-        if len(imsLis[i])<2:
-            print(folLis[i]+' : '+str(strs))
-def collectInCSV(imsLis, folLis, nm, demo):
-    collect = []
-    for fol, ims in zip(folLis, imsLis):
-        if fol in nm:
-            i = nm.index(fol)
-            row = [fol, ims, demo[i]]#np.array
-            collect.append(row)
-        else:
-            print(fol)
-    return collect
+
+
 def getLargestSlice_Resize(im, sz):
     sl_szs = np.sum(np.sum(im>0, axis = 0),axis=0)
     #rszIm = resize(im[:,:,np.argmax(sl_szs)], sz)
@@ -1775,42 +1986,7 @@ def getClassWeights(ls):
                 1: classes[0]}
     return class_weight
 
-def register(dbl):
-    im, dic = dbl
-    
-    vox_vol = np.sum(im > 0)
-    vx_szs = dic['space directions']
-    vx_szs = np.vstack([list(map(float,elt)) for elt in vx_szs if (isinstance(elt, list))])
-    ##
-    ls = []
-    for elt in vx_szs:
-        sub = np.zeros((3,))
-        ind = np.argmax(np.abs(elt))
-        sub[ind] = elt[ind]
-        ls.append(sub)
-    vx_szs = np.vstack(ls)
-    ##
-    vx_szs = np.vstack([vx_szs[np.argmax(np.abs(elt))] for elt in np.transpose(vx_szs)])
 
-    ratio = np.array(list(map(lambda j: vx_szs[j,j], [0,1,2])))
-    
-    for flip_dim in np.where(ratio  < 0)[0]:
-        im = np.flip(im, axis=flip_dim)
-    ratio = np.abs(ratio)
-    
-    volume = vox_vol * np.product(ratio)
-    ratio_xy = ratio[:2]
-    ratio_xy = ratio_xy/min(ratio_xy)
-    if np.sum(np.abs(np.abs(ratio/min(ratio))-1)<0.05)>1:
-        ratio_xy = [1, 1]
-        not_1 = ratio[np.abs(ratio/min(ratio))!=1][0]
-        ratio = np.array([min(ratio), min(ratio), not_1])
-    # deal with x,y relative scale
-    im = zoom(im, (ratio_xy[0], ratio_xy[1], 1))
-    bb_dims = ratio * np.array(im.shape)
-    im_demo = np.abs(np.hstack([bb_dims, volume]))
-    
-    return im_demo, im
 
 
 
@@ -1911,27 +2087,7 @@ def single_im_batch_generator(batch_size, tstIms, lbls, nb_classes, w, hi):
         yield (outIms, np_utils.to_categorical(outLs, nb_classes))
 
 
-def abs2(ar):
-    ar[ar != -1]=np.abs(ar[ar != -1])
-    return ar
-def compileImsDemos(inps, demos, w, hi):
-    s = inps.shape
-    newIms = np.zeros(s, dtype=object)
-    newDemos = np.zeros(s, dtype=object)
-    for i in range(s[0]):
-        for j in range(s[1]):
-            dbl = inps[i,j]
-            im_demo, im = register(dbl)
-            #newIms[i,j], _ = rsz3D(im, w, hi)
-            #a=getLargestNSlice_Resize(im, [w,w], hi)
-            newIms[i,j] =get_50_75_100_Slice_Resize(im, [w,w], hi)
-            
-            newDemos[i,j] = im_demo
-            
-    all_demos = np.hstack([np.vstack(demos), np.vstack([np.hstack(elt) for elt in newDemos])]).astype(float)
-    all_demos[np.isnan(all_demos)]=-1
-    all_demos = abs2(all_demos)
-    return newIms, all_demos
+
 from skimage.transform import resize
 def compileImsDemos_isolate_quartiles(inps, demos, w, hi):
     s = inps.shape
@@ -3462,3 +3618,4 @@ def shareResNet(h,w, model, dr, kr, ar):
     full_model = Model(inputs = [stackInp], outputs = [dense_soft])
     full_model.summary()
     return full_model
+dr = '../grade'
