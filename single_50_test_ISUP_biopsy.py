@@ -155,7 +155,7 @@ for rep in range(5):
 
 			optim = SGD(lr=0.001, decay=1e-6, momentum=0.9, nesterov=True)
 			    
-			weights = 1/hist_type(np.array(tstLs+trnLs))
+			weights = 1/hist_type(np.array(tstLs))
 			weights = weights/np.linalg.norm(weights)*np.sqrt(len(weights))
 			model.compile(optimizer=optim, loss=weighted_categorical_crossentropy(weights), metrics=['accuracy'])
 			    
