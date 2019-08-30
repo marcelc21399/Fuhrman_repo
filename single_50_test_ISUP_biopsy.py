@@ -6,16 +6,11 @@ Created on Wed Jul  4 17:22:22 2018
 @author: priscillachang
 """
 import my_globs
-import numpy as np
 
-import os
-from time import gmtime, strftime
 from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
 from keras.optimizers import SGD
-import sys
 
 from keras import backend as K
-from keras.utils import np_utils
 from utils_run import ld_obj, save_obj, bothIms_and_Demo, perfMeasures, weighted_categorical_crossentropy, hist_type
 import numpy as np
 import csv
@@ -23,7 +18,6 @@ import os
 from time import gmtime, strftime
 import sys
 sys.path.insert(0, 'keras-resnet-master')
-from resnet_stoch_depth import ResnetBuilder
 
 from scipy.ndimage import zoom
 from matplotlib import pyplot as plt
@@ -35,6 +29,12 @@ from keras.utils import np_utils
 
 from keras.applications.resnet50 import ResNet50
 
+import keras
+import tensorflow as tf
+
+config = tf.ConfigProto( device_count = {'GPU': 1 , 'CPU': 4} ) 
+sess = tf.Session(config=config) 
+keras.backend.set_session(sess)
 
 
 
