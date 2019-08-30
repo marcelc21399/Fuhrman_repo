@@ -1,4 +1,7 @@
 #ld_obj, save_obj, bothIms_and_Demo, perfMeasures, weighted_categorical_crossentropy, hist_type
+from keras.layers import Concatenate, Input, Dense, Reshape, Dropout, Lambda, Flatten
+from keras import regularizers
+from keras.models import Model
 
 "pickle helpers"
 "______________"
@@ -67,7 +70,7 @@ def bothIms_and_Demo(model1, model2, dr = 0.5, nb_classes = 2, kr = 0.1, ar = 0.
     
     dense_soft = Lambda(lambda x: K.softmax(x))(dense)
     
-    
+
     
     
     full_model = Model(inputs = [model1.input, model2.input, demo_inp], outputs = [dense_soft])
@@ -232,6 +235,3 @@ def hist_type(ar):
         print(str((elt))+':'+str(np.mean(ar==elt)))
         out[i] = np.mean(ar==elt)
     return out
-
-
-
