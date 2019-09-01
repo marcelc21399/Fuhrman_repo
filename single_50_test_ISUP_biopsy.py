@@ -32,7 +32,7 @@ from keras.applications.resnet50 import ResNet50
 import keras
 import tensorflow as tf
 
-config = tf.ConfigProto( device_count = {'GPU': 1 , 'CPU': 4} ) 
+config = tf.ConfigProto( device_count = {'GPU': 2 , 'CPU': 4} ) 
 sess = tf.Session(config=config) 
 keras.backend.set_session(sess)
 
