@@ -19,6 +19,11 @@ from time import gmtime, strftime
 import sys
 sys.path.insert(0, 'keras-resnet-master')
 
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID";
+ 
+# The GPU id to use, usually either "0" or "1";
+os.environ["CUDA_VISIBLE_DEVICES"]="1";  
+
 from scipy.ndimage import zoom
 from matplotlib import pyplot as plt
 
@@ -31,6 +36,9 @@ from keras.applications.resnet50 import ResNet50
 
 import keras
 import tensorflow as tf
+
+
+
 
 '''
 config = tf.ConfigProto( device_count = {'GPU': 2 , 'CPU': 4} ) 
