@@ -180,7 +180,7 @@ for rep in range(5):
 			history = model.fit_generator(
 					generate_generator_multiple(),
 					epochs=10000,#10000
-					steps_per_epoch=np.ceil(len(trnDs)/5),
+					steps_per_epoch=np.ceil(len(trnDs)/32),
 					validation_data=([T1_val, T2_val, np.stack(valDs,axis=0)], y_val),
 					verbose=2,
 					callbacks=callbacks

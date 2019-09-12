@@ -306,7 +306,7 @@ def save_inps():
     
     outs = pathols
     
-    by_patient = [[input_T1s[:,:,:,i], input_T2s[:,:,:,i], input_numbers[i,:], nms[i], outs[i]] for i in range(len(outputs))]
+    by_patient = [[input_T1s[:,:,:,i], input_T2s[:,:,:,i], input_numbers[i,:], nms[i], outs[i]] for i in range(len(outs))]
     
     non_biopsy = biopsy == 0
     Fuhrman = Fuhr_ISUP == 1

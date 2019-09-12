@@ -14,6 +14,8 @@ from time import gmtime, strftime
 import numpy as np
 from keras import backend as K
 
+import pandas
+
 def ld_obj(s):
     if '.pkl' not in s:
         s = s + '.pkl'
@@ -235,3 +237,20 @@ def hist_type(ar):
         print(str((elt))+':'+str(np.mean(ar==elt)))
         out[i] = np.mean(ar==elt)
     return out
+def restrict(csv_name, oldIms, oldLs):
+    oldData = np.hstack((oldIms, np.expand_dims(oldLs, axis=1)))
+    
+    data = pandas.read_csv(csv_name)
+    nm = list(data.iloc[:,0])
+    
+    newData = []
+    remainder = []
+    for elt in oldData:
+        if elt[3] in nm:
+            print(elt[3])
+            newData.append(elt)
+        else:
+            remainder.append(elt)
+    newData = np.array(newData)
+    newIms, newLs = newData[:,:4], newData[:,4]
+    return newIms, newLs, remainder
